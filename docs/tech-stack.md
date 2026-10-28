@@ -1,11 +1,12 @@
 # Tech Stack
 
 Tài liệu này ghi lại các lựa chọn công nghệ và lý do. Kiến trúc tổng thể nằm ở
-[architecture.md](./architecture.md); lộ trình theo giai đoạn nằm ở
-[plans/261028-1152-rtk-positioning-roadmap/plan.md](../plans/261028-1152-rtk-positioning-roadmap/plan.md).
+[architecture.md](./architecture.md); kế hoạch và trạng thái Giai đoạn 1 nằm ở
+[plans/261028-1242-phase-1-web-gps-baseline/plan.md](../plans/261028-1242-phase-1-web-gps-baseline/plan.md);
+cách chạy nằm ở [deployment-guide.md](./deployment-guide.md).
 
-Trạng thái: **đề xuất** (chưa có code). Mỗi lựa chọn có thể đổi trước khi bắt đầu
-Giai đoạn 1; sau đó đổi cần cập nhật tài liệu này.
+Trạng thái: Giai đoạn 1 **đã cài đặt** theo các lựa chọn dưới đây. Các mục cho
+Giai đoạn 2–4 chỉ là định hướng, chưa nằm trong phạm vi hiện tại.
 
 ## Tóm tắt lựa chọn
 
@@ -14,17 +15,19 @@ Giai đoạn 1; sau đó đổi cần cập nhật tài liệu này.
 | Ngôn ngữ chung | TypeScript (strict) | 1+ |
 | Quản lý monorepo | pnpm workspaces | 1+ |
 | Web client | React 19 + Vite + TypeScript | 1+ |
-| Style | Tailwind CSS | 1+ |
+| Style | Tailwind CSS 4 | 1+ |
 | State phía client | Zustand | 1+ |
-| Bản đồ | Leaflet (react-leaflet), nền OSM + ảnh vệ tinh | 1+ |
-| Biểu đồ | Recharts | 1+ |
+| Bản đồ | Leaflet (react-leaflet), nền OSM + ảnh vệ tinh Esri | 1+ |
+| Biểu đồ | Recharts (khoảng cách theo thời gian); SVG tự vẽ (phân tán ENU) | 1+ |
 | QR | `qrcode` (tạo mã); quét bằng camera hệ thống | 1+ |
-| Server realtime | Node.js 22 LTS + Fastify + `@fastify/websocket` | 1+ |
+| Server realtime | Node.js 22.13+ + Fastify 5 + `@fastify/websocket`, chạy bằng `tsx` | 1+ |
 | Kiểm tra schema | Zod (dùng chung client/server) | 1+ |
-| Lưu trữ | SQLite qua `better-sqlite3` | 1+ |
-| Test | Vitest (unit), Playwright (e2e, giả lập vị trí) | 1+ |
-| Đóng gói & chạy | Docker + Caddy (HTTPS tự động) trên một VPS | 1+ |
-| HTTPS khi dev trên điện thoại | Cloudflare Quick Tunnel (`cloudflared`) | 1+ |
+| Lưu trữ | SQLite tích hợp sẵn trong Node (`node:sqlite`) | 1+ |
+| Test | Vitest (unit, server), Playwright (e2e, giả lập vị trí) | 1+ |
+| Lint & format | ESLint + typescript-eslint + react-hooks, Prettier | 1+ |
+| Nơi chạy | Laptop của người dùng | 1 |
+| HTTPS cho điện thoại | Cloudflare Quick Tunnel (`cloudflared`) | 1 |
+| CI | GitHub Actions | 1+ |
 | App Android | Kotlin + Jetpack Compose | 2, 3, 4 |
 | Xử lý GNSS thô | RTKLIB bản `demo5` (rtklibexplorer), `rnx2rtkp` | 2 |
 | Worker xử lý | Python 3.12 gọi RTKLIB CLI | 2 |
@@ -87,7 +90,7 @@ So sánh ba phương án trong yêu cầu:
 | Chạy RTKLIB ở Giai đoạn 2 | Cần thêm máy chủ riêng | Cần thêm máy chủ riêng | Cùng hạ tầng, thêm một worker |
 | Trao đổi token UWB ở Giai đoạn 3 | Được | Được | Được, dùng lại kênh phòng |
 | Phụ thuộc nhà cung cấp | Cao | Trung bình | Thấp |
-| Chi phí | Theo lượt đọc/ghi | Theo gói | Một VPS nhỏ |
+| Chi phí | Theo lượt đọc/ghi | Theo gói | Không (chạy trên laptop) |
 
 Lý do chọn server riêng: Giai đoạn 2 bắt buộc có máy chủ chạy RTKLIB, và việc
 ghép mẫu theo thời gian cần đo độ lệch đồng hồ của từng máy. Một server
@@ -96,13 +99,32 @@ TypeScript nhỏ giải quyết cả hai và dùng chung kiểu dữ liệu vớ
 - Fastify: nhanh, có plugin WebSocket chính thức, phục vụ luôn file tĩnh của web
   client (một origin, không cần CORS).
 - Zod: schema message dùng chung trong `packages/shared`, kiểm tra ở cả hai đầu.
+- `tsx` chạy thẳng mã TypeScript, không có bước build riêng cho server.
 
-### Lưu trữ: SQLite
+### Lưu trữ: SQLite tích hợp trong Node
 
 - Lượng dữ liệu nhỏ: 2 máy × 1 mẫu/giây × 5 phút = 600 mẫu một lần đo.
-- Một file, sao lưu bằng cách copy, không cần dịch vụ cơ sở dữ liệu riêng.
-- Nếu sau này cần nhiều server hoặc nhiều người dùng đồng thời, chuyển sang
-  PostgreSQL; truy vấn được viết bằng SQL chuẩn để chuyển dễ.
+- `node:sqlite` có sẵn từ Node 22.13, không cần biên dịch module native như
+  `better-sqlite3`, nên `pnpm install` trên laptop không phụ thuộc trình biên dịch C++.
+- Một file, sao lưu bằng `sqlite3 .backup`, không cần dịch vụ cơ sở dữ liệu riêng.
+- Migration là các file SQL đánh số trong `apps/server/migrations/`, theo dõi bằng
+  `PRAGMA user_version`.
+
+### Nơi chạy: laptop + Cloudflare Tunnel
+
+Thay cho VPS. Server chạy trên laptop, chỉ nghe `127.0.0.1`; `cloudflared` mở một
+đường hầm ra ngoài và cấp địa chỉ `https://….trycloudflare.com`.
+
+| Tiêu chí | Laptop + Quick Tunnel (chọn) | VPS |
+|----------|------------------------------|-----|
+| Chi phí | Không | Thuê theo tháng |
+| HTTPS | Có sẵn | Phải cấu hình Caddy/Let's Encrypt và tên miền |
+| Điện thoại ngoài trời dùng 4G | Vào được | Vào được |
+| Địa chỉ cố định | Không (đổi mỗi lần chạy) | Có |
+| Luôn sẵn sàng | Chỉ khi laptop bật | Có |
+
+Địa chỉ thay đổi không ảnh hưởng tới việc đo vì mã QR luôn lấy địa chỉ hiện tại.
+Cách chạy chi tiết ở [deployment-guide.md](./deployment-guide.md).
 
 ### QR code
 
@@ -116,6 +138,11 @@ cần viết trình quét QR trong app.
   Đây là phần cần đúng nhất nên có test với số liệu đã biết đáp án.
 - Playwright cho luồng 2 máy: hai browser context, mỗi context được giả lập vị
   trí bằng `context.setGeolocation`, kiểm tra khoảng cách hiển thị.
+
+## Định hướng cho các giai đoạn sau (ngoài phạm vi hiện tại)
+
+Các mục dưới đây chưa có kế hoạch triển khai; chúng được giữ để Giai đoạn 1 không
+chặn đường mở rộng.
 
 ## Giai đoạn 2: Dữ liệu GNSS thô (Android)
 
@@ -165,16 +192,14 @@ cần viết trình quét QR trong app.
 | Công cụ | Mục đích |
 |---------|----------|
 | ESLint + Prettier | Lint và format |
-| GitHub Actions | CI: lint, typecheck, test, build image |
-| `cloudflared` | Tạo URL HTTPS tạm để test trên điện thoại khi dev |
-| Docker Compose | Chạy server + Caddy trên VPS |
+| GitHub Actions | CI: lint, typecheck, test, e2e |
+| `cloudflared` | Cấp địa chỉ HTTPS công khai cho server trên laptop |
 
 ## Giả định đã chọn
 
-Những điểm sau tôi tự quyết vì yêu cầu chưa nêu; có thể đổi.
-
 1. Chọn server WebSocket riêng thay vì Firebase hoặc Supabase (lý do ở bảng so sánh).
-2. Không có đăng nhập. Ai có mã phòng thì vào được; phòng tự hết hạn sau 24 giờ.
+2. Không có đăng nhập. Ai có mã phòng thì vào được; phòng hết hạn vào sau 24 giờ,
+   dữ liệu bị xóa sau 7 ngày.
 3. Một phòng tối đa 2 máy ở Giai đoạn 1.
 4. Giao diện tiếng Việt.
-5. Triển khai trên một VPS bằng Docker; chưa chọn nhà cung cấp và tên miền.
+5. Chạy trên laptop của người dùng qua Cloudflare Quick Tunnel (theo yêu cầu, thay cho VPS).

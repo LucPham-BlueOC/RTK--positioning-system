@@ -1,0 +1,29 @@
+{
+  "name": "rtk-positioning-system",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @rtk/server --filter @rtk/web dev",
+    "build": "pnpm --filter @rtk/web build",
+    "start": "pnpm --filter @rtk/server start",
+    "tunnel": "cloudflared tunnel --url http://127.0.0.1:8787",
+    "tunnel:dev": "cloudflared tunnel --url http://localhost:5173",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @rtk/web test:e2e",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "typescript-eslint": "^8.72.1"
+  }
+}
