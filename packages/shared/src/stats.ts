@@ -51,21 +51,43 @@ export function errorStats<T extends PairableSample>(
 }
 
 export interface StaticFilter {
-  /** Samples worse than this are dropped from the average. */
-  maxAccuracyM: number;
-  /** Samples in the first seconds of a session are dropped while the fix settles. */
+  /** Skip samples this many seconds after session start while the fix settles. */
   warmupS: number;
+  /** Samples with accuracy better than or equal to this are accepted. */
+  maxAccuracyM: number;
+  /** Collect for at most this many seconds (from session start). */
+  timeoutS: number;
 }
 
-export const DEFAULT_STATIC_FILTER: StaticFilter = { maxAccuracyM: 30, warmupS: 5 };
+export const DEFAULT_STATIC_FILTER: StaticFilter = {
+  warmupS: 3,
+  maxAccuracyM: 30,
+  timeoutS: 20,
+};
+
+export interface StaticFilterResult<T extends PairableSample> {
+  samples: T[];
+  /** True when nothing was within accuracy, so the best fix so far is kept. */
+  fellBack: boolean;
+}
 
 export function filterForStatic<T extends PairableSample>(
   samples: readonly T[],
   sessionStart: number,
   filter: StaticFilter = DEFAULT_STATIC_FILTER,
-): T[] {
+): StaticFilterResult<T> {
   const from = sessionStart + filter.warmupS * 1000;
-  return samples.filter((s) => s.tServer >= from && s.accuracy <= filter.maxAccuracyM);
+  const until = sessionStart + filter.timeoutS * 1000;
+  // The window is where the fallback draws from; samples that only arrive
+  // after the timeout still count when they are within accuracy.
+  const ok = samples.filter(
+    (s) => s.tServer >= from && s.tServer < until && s.accuracy <= filter.maxAccuracyM,
+  );
+  if (ok.length) return { samples: ok, fellBack: false };
+  const seen = samples.filter((s) => s.tServer >= from && s.tServer <= until);
+  let best: T | undefined;
+  for (const s of seen) if (!best || s.accuracy < best.accuracy) best = s;
+  return { samples: best ? [best] : [], fellBack: true };
 }
 
 export interface PointCloudStats {

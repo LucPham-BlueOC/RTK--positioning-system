@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fromEnu, haversine } from './geo';
 import { pairSamples } from './pairing';
 import {
+  DEFAULT_STATIC_FILTER,
   errorStats,
   filterForStatic,
   mean,
@@ -73,13 +74,39 @@ describe('static averaging', () => {
     expect(s.stdNorth).toBeCloseTo(std([0, 2, 0, -2]), 3);
   });
 
-  it('drops warm-up samples and poor fixes', () => {
+  it('defaults to warm-up 3 s, 30 m ceiling and a 20 s window', () => {
+    expect(DEFAULT_STATIC_FILTER).toEqual({ warmupS: 3, maxAccuracyM: 30, timeoutS: 20 });
+  });
+
+  it('keeps in-window samples that fit the accuracy ceiling', () => {
     const samples = [
       { tServer: 1000, lat: 0, lon: 0, accuracy: 3 },
-      { tServer: 7000, lat: 0, lon: 0, accuracy: 3 },
-      { tServer: 8000, lat: 0, lon: 0, accuracy: 45 },
+      { tServer: 4000, lat: 0, lon: 0, accuracy: 3 },
+      { tServer: 4000, lat: 0, lon: 0, accuracy: 45 },
     ];
-    expect(filterForStatic(samples, 0).map((s) => s.tServer)).toEqual([7000]);
+    const r = filterForStatic(samples, 0);
+    expect(r.samples.map((s) => s.tServer)).toEqual([4000]);
+    expect(r.fellBack).toBe(false);
+  });
+
+  it('falls back to the best seen fix when the window has none within accuracy', () => {
+    const samples = [
+      { tServer: 4000, lat: 0, lon: 0, accuracy: 45 },
+      { tServer: 15000, lat: 0, lon: 0, accuracy: 40 },
+      { tServer: 30000, lat: 0, lon: 0, accuracy: 30 },
+    ];
+    const r = filterForStatic(samples, 0);
+    expect(r.samples.map((s) => [s.tServer, s.accuracy])).toEqual([[15000, 40]]);
+    expect(r.fellBack).toBe(true);
+  });
+
+  it('returns an empty set only when nothing was seen by the timeout', () => {
+    const r = filterForStatic(
+      [{ tServer: 21000, lat: 0, lon: 0, accuracy: 30 }],
+      0,
+    );
+    expect(r.samples).toEqual([]);
+    expect(r.fellBack).toBe(true);
   });
 
   it('returns null without data on both devices', () => {

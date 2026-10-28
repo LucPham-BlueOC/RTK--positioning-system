@@ -93,7 +93,7 @@ test('two phones pair by code, see a 20 m distance, run a static session, compar
   await pa.getByRole('button', { name: 'Bắt đầu đo' }).click();
   await pb.getByRole('tab', { name: 'Đo tĩnh' }).click();
   await expect(pb.getByTestId('static-countdown')).toBeVisible();
-  await pa.waitForTimeout(8_000); // past the 5 s warm-up so samples count
+  await pa.waitForTimeout(8_000); // past the 3 s warm-up so samples count
   await pa.getByRole('button', { name: 'Dừng' }).click();
   await expect.poll(() => metres(pa, 'static-distance'), { timeout: 10_000 }).toBeCloseTo(20, 1);
 

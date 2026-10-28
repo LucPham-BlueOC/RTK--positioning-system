@@ -271,7 +271,9 @@ trung bình trực tiếp trên độ kinh/vĩ).
 1. Server mở phiên `static` với thời lượng 60–300 giây cho cả hai máy.
 2. Mỗi máy thu mẫu như bình thường, gắn `session_id`.
 3. Loại mẫu có `accuracy` lớn hơn ngưỡng (mặc định 30 m, cấu hình được) và mẫu
-   trong 5 giây đầu (chờ vị trí ổn định).
+   trong 3 giây đầu (chờ vị trí ổn định). Chỉ dùng mẫu trong 20 giây đầu của
+   phiên; nếu hết thời gian vẫn chưa có mẫu nào đạt chuẩn accuracy, dùng fix
+   tốt nhất đã thấy (UI cảnh báo khi điều này xảy ra).
 4. Tính vị trí trung bình mỗi máy trong ENU, đổi lại kinh/vĩ.
 5. Khoảng cách tĩnh = Haversine giữa hai vị trí trung bình.
 6. Độ phân tán mỗi máy: độ lệch chuẩn theo đông và bắc, và bán kính chứa 50% số

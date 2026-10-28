@@ -13,7 +13,6 @@ import { setStore, useRoomStore } from '../../sync/room-store';
 import { Button, Card, Stat } from '../ui';
 
 const DURATIONS = [60, 120, 180, 240, 300];
-
 function CloudStats({ name, s }: { name: string; s: PointCloudStats }) {
   return (
     <div className="tabular text-sm">
@@ -48,20 +47,26 @@ export function StaticPanel() {
   };
 
   const session = data.session;
-  const result = session
-    ? staticResult(
-        filterForStatic(data.samplesA, session.startedAt),
-        filterForStatic(data.samplesB, session.startedAt),
-      )
+  const filtered = session
+    ? {
+        a: filterForStatic(data.samplesA, session.startedAt),
+        b: filterForStatic(data.samplesB, session.startedAt),
+      }
     : null;
+  const result = filtered
+    ? staticResult(filtered.a.samples, filtered.b.samples)
+    : null;
+  const fellBack = filtered ? filtered.a.fellBack || filtered.b.fellBack : false;
 
   return (
     <div className="flex flex-col gap-4">
       <Card title="Đo tĩnh (lấy trung bình)">
         <p className="mb-3 text-sm text-slate-400">
           Đặt hai máy nằm yên, cùng độ cao, màn hình hướng lên trời. Cả hai máy cùng thu trong thời
-          gian đã chọn rồi lấy vị trí trung bình. Bỏ {DEFAULT_STATIC_FILTER.warmupS} giây đầu và các
-          mẫu có sai số trên {DEFAULT_STATIC_FILTER.maxAccuracyM} m.
+          gian đã chọn rồi lấy vị trí trung bình. Bỏ {DEFAULT_STATIC_FILTER.warmupS} giây đầu và
+          các mẫu có sai số trên {DEFAULT_STATIC_FILTER.maxAccuracyM} m; nếu hết
+          {DEFAULT_STATIC_FILTER.timeoutS} giây vẫn chưa có mẫu đạt chuẩn thì dùng fix tốt nhất đã
+          thấy.
         </p>
         {active ? (
           <div className="flex items-center justify-between gap-3">
@@ -103,6 +108,12 @@ export function StaticPanel() {
         <Card title={`Kết quả phiên ${fmtTime(session.startedAt)}`}>
           {result ? (
             <div className="flex flex-col gap-3">
+              {fellBack && (
+                <p className="text-xs text-amber-300">
+                  Chưa có mẫu nào đạt chuẩn {DEFAULT_STATIC_FILTER.maxAccuracyM} m trong{' '}
+                  {DEFAULT_STATIC_FILTER.timeoutS} s đầu — kết quả dùng fix tốt nhất đã thấy.
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <Stat
                   label="Khoảng cách trung bình"
