@@ -223,38 +223,6 @@ describe('static sessions and CSV', () => {
 });
 
 describe('viewers and leaving', () => {
-  it('lets a laptop create the room as a viewer so two phones can measure', async () => {
-    const laptop = await connect();
-    laptop.send({
-      type: 'room.create',
-      deviceId: laptop.deviceId,
-      name: 'Máy tính',
-      role: 'viewer',
-    });
-    const created = await laptop.expect('room.state');
-    expect(created.room.devices).toHaveLength(0);
-    expect(created.room.viewerCount).toBe(1);
-    const code = created.room.code;
-
-    const phones = [await connect(), await connect()];
-    for (const [i, p] of phones.entries()) {
-      p.send({ type: 'room.join', code, deviceId: p.deviceId, name: `Máy ${i ? 'B' : 'A'}` });
-      await p.expect('sample.history');
-    }
-    let state = await laptop.expect('room.state');
-    while (state.room.devices.length < 2) state = await laptop.expect('room.state');
-    expect(state.room.devices.map((d) => [d.name, d.online])).toEqual([
-      ['Máy A', true],
-      ['Máy B', true],
-    ]);
-
-    // The viewer sees phone samples but may not send its own.
-    phones[0]!.send({ type: 'sample.batch', samples: [sample(0, Date.now())] });
-    expect((await laptop.expect('sample.broadcast')).samples).toHaveLength(1);
-    laptop.send({ type: 'sample.batch', samples: [sample(0, Date.now())] });
-    expect((await laptop.expect('error')).code).toBe('viewer-only');
-  });
-
   it('frees the slot when a device leaves, keeping its samples for export', async () => {
     const { a, code } = await createRoom('Máy tính');
     a.send({ type: 'sample.batch', samples: [sample(0, Date.now())] });

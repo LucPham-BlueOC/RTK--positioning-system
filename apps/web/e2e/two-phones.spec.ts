@@ -61,6 +61,7 @@ test('two phones pair by code, see a 20 m distance, run a static session, compar
   const pb = await phone(browser, B);
 
   await pa.goto('/');
+  await pa.getByLabel('Tên máy').fill('Máy A');
   await pa.getByRole('button', { name: 'Tạo phòng mới' }).click();
   const code = (await pa.getByTestId('room-code').innerText()).trim();
   expect(code).toMatch(/^[A-Z2-9]{4}$/);
@@ -160,10 +161,12 @@ test('a laptop watches while two phones measure', async ({ browser }) => {
 test('a third phone is refused', async ({ browser }) => {
   const [p1, p2, p3] = await Promise.all([phone(browser, A), phone(browser, B), phone(browser, A)]);
   await p1.goto('/');
+  await p1.getByLabel('Tên máy').fill('Máy A');
   await p1.getByRole('button', { name: 'Tạo phòng mới' }).click();
   const code = (await p1.getByTestId('room-code').innerText()).trim();
   for (const p of [p2, p3]) {
     await p.goto(`/r/${code}`);
+    await p.getByLabel('Tên máy').fill('Máy đo');
     await p.getByRole('button', { name: 'Vào', exact: true }).click();
   }
   await expect(p2.getByTestId('room-code')).toBeVisible();

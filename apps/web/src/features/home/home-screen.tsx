@@ -25,7 +25,7 @@ export function HomeScreen() {
   const [name, setName] = useState(
     () =>
       getSavedName() ??
-      (defaultRole() === 'viewer' ? 'Máy tính' : codeFromUrl() ? 'Máy B' : 'Máy A'),
+      (defaultRole() === 'viewer' ? 'Máy tính' : ''),
   );
   const busy = phase === 'connecting';
   const validCode = roomCodeSchema.safeParse(code).success;
@@ -73,6 +73,7 @@ export function HomeScreen() {
         <input
           className="w-full rounded-xl bg-slate-800 px-3 py-3 text-lg outline-none ring-sky-500 focus:ring-2"
           value={name}
+          placeholder={role === 'viewer' ? 'Máy tính' : 'Nhập tên máy…'}
           maxLength={24}
           onChange={(e) => setName(e.target.value)}
           aria-label="Tên máy"
