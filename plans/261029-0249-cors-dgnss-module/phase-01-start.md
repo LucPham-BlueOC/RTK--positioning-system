@@ -1,132 +1,141 @@
 ---
-title: "Phase 1: shared - schema va toan moc CORS"
+title: "Phase 1: shared - types, geodesy, toan quy dao, mock feed"
 status: todo
 ---
 
-# Phase 1: shared — types CORS + toán ECEF/ENU trạm + mock feed
+# Phase 1: shared — types, geodesy, toán quỹ đạo, mock feed
 
 ## Overview
 
-Nền tảng dùng chung server/web (chạy được ở cả hai phía — qui tắc
-`packages/shared` của repo): (1) type `CorsState` mô tả trạm CORS (vị trí
-ARP, mã RTCM đang nhận, sai số trạm theo thời gian nếu stream có GGA),
-(2) toán chuyển ECEF → WGS84 (vị trí trạm) và ENU gốc tại trạm (dùng cho
-quick-test vị trí máy trong frame trạm, **chỉ trên page `/cors`** — không
-đưa vào màn phòng), (3) mock feed RTCM3 hợp lệ (CRC đúng) để test + mock
-mode, (4) config env từ nghiên cứu đã kiểm chứng (RTK2go:
-`rtk2go.com:2101`, user = email tùy ý, pass = `none`).
+Nền tảng dùng chung server/web (qui tắc `packages/shared`): (1) schema zod cho
+các message CORS mới, (2) geodesy WGS84 chuẩn (ECEF ↔ geodetic, ENU tại
+trạm, góc ngẩng), (3) toán quỹ đạo Kepler + đồng hồ vệ tinh cho GPS, Galileo,
+BeiDou, (4) mock feed RTCM3 hợp lệ sinh từ quỹ đạo thật về mặt hình học, có
+sai số tiêm vào đã biết để test engine ở phase 3, (5) config env.
 
-**Mục đích module (chốt 261029-1110): thử nghiệm kết nối NTRIP + đo sai số
-trạm (GGA/RTD) làm đầu vào giảm sai số DGNSS ở phase 2. Không có dòng giá
-trị "mốc CORS" trên màn phòng** (kết quả quyết định này ghi ở `plan.md`).
-
-## Context — sự thật giao thức (đã kiểm chứng, thay thế thiết kế cũ)
-
-- **1005 KHÔNG phải GGA** — là GLONASS Stationary ARP (XYZ ECEF). Dải
-  Stationary: 1004 (GPS ARP), 1005 (GLONASS ARP), 1006/1007 (RTK XYZ/GLL),
-  1032/1033 (ARP XYZ/GLL), 1076/1077 (RTK).
-- **GGA DGNSS** trong RTCM3 là 3040–3044 / 3151 (RTD residual per SV,
-  đơn vị 0.01 m). Stream RTK2go típ (theo ví dụ Quectel) thường chỉ có
-  `1005/1033 + MSM4` → **không có GGA** → UI phải hiện rõ trạng thái này.
-- **Không có phép toán nào "hiệu chỉnh" vị trí trình duyệt bằng stream CORS**
-  (Geolocation API không có phép đo thô). Quyết định chốt: **module CORS =
-  thử nghiệm kết nối + quan sát sai số trạm (GGA/RTD)**; sai số trạm là đầu
-  vào để giảm sai số DGNSS ở giai đoạn 2 (receiver nhận correction). Không
-  claim DGNSS, không có dòng giá trị "mốc CORS" trên màn phòng.
+Tham chiếu chuẩn: artifact mục 6 (ARP), 9 (ECEF → WGS84), 7 (sai số trạm).
 
 ## Files
 
 | Action | Path | Change |
 |--------|------|--------|
-| create | `packages/shared/src/cors.ts` | Types + toán (dưới), mock feed generator |
-| create | `packages/shared/src/cors.test.ts` | Unit test |
-| modify | `packages/shared/src/schema.ts` | `serverMessageSchema` + union member `{ type: 'cors.state', cors: CorsState }` (gửi MỌI socket, không cần room) |
-| modify | `packages/shared/src/index.ts` | export cors |
-| modify | `apps/server/src/config.ts` | env CORS mới |
+| create | `packages/shared/src/cors.ts` | Schema zod + type `CorsState`, `CorsEpoch`, `CorsSatResidual` |
+| create | `packages/shared/src/ecef.ts` | `ecefToGeodetic`, `geodeticToEcef`, `ecefToEnu`, `elevationAzimuth` (WGS84) |
+| create | `packages/shared/src/orbit.ts` | `keplerSatPos` (GPS/GAL/BDS, kể cả BDS GEO), `satClockBias`, hằng số từng hệ |
+| create | `packages/shared/src/rtcm3-mock.ts` | `corsMockFeed()` — encoder khung RTCM3 + bộ sinh epoch |
+| create | `packages/shared/src/{cors,ecef,orbit,rtcm3-mock}.test.ts` | Unit test |
+| modify | `packages/shared/src/schema.ts` | Thêm `cors.state`, `cors.epoch`, `cors.history` vào `serverMessageSchema` |
+| modify | `packages/shared/src/index.ts` | Export các module mới |
+| modify | `apps/server/src/config.ts` | `cors: {...}` từ env |
 
-## Types & math (design)
+Không sửa `geo.ts` (`toEnu` xấp xỉ phẳng vẫn dùng cho màn phòng) và không sửa `stats.ts`.
+
+## Types (design)
 
 ```ts
-export interface CorsBase {
-  lat: number; lon: number; alt: number;      // ARP WGS84, m (geodetic)
-  msgType: number;                              // mã RTCM đã decode (1004/1032/...)
+type GnssSystem = 'G' | 'E' | 'C'; // GPS, Galileo, BeiDou (GLONASS sau)
+
+interface CorsStation {
+  ecef: { x: number; y: number; z: number };   // m, từ 1005/1006/1032
+  lat: number; lon: number; alt: number;        // WGS84, tính bằng ecefToGeodetic
+  antennaHeightM: number | null;                 // 1006
+  msgType: 1005 | 1006 | 1032;
+  stationId: number;
+  receiver?: string; antenna?: string; firmware?: string; // 1033
   at: number;
 }
 
-/** Sai số trạm theo thời gian — chỉ có khi stream phát mã GGA (3040..3044/3151). */
-export interface CorsGga {
-  at: number;
-  msgType: number;
-  maxRtdM: number;      // max |RTD| trên 12 SV
-  rmsRtdM: number;      // sqrt(mean(RTD²))
+interface CorsSatResidual {
+  sys: GnssSystem; prn: number;
+  residualM: number;      // sai số tổng (đã trừ đồng hồ chung của hệ, giữ khí quyển)
+  elevationDeg: number;
+  cn0: number | null;     // dB-Hz từ MSM
 }
 
-export interface CorsState {
-  status: 'off' | 'connecting' | 'connected' | 'reconnecting';
-  mountpoint: string;
-  base?: CorsBase;
-  gga?: CorsGga;
-  /** Bounded (vd 1800 điểm), cho biểu đồ sai số trạm theo thời gian. */
-  ggaHistory: CorsGga[];
-  /** Các mã RTCM đã quan sát + số lần, cho khối chẩn đoán /cors. */
+interface CorsEpoch {
+  at: number;             // epoch thời gian GPS → ms Unix
+  sats: CorsSatResidual[];
+  clockBiasM: Partial<Record<GnssSystem, number>>; // độ lệch đồng hồ máy thu ước lượng mỗi hệ
+  rmsM: number; maxAbsM: number;
+  skipped: { sys: GnssSystem; prn: number; reason: 'no-ephemeris' | 'low-elevation' | 'no-signal' }[];
+}
+
+interface CorsState {
+  status: 'off' | 'connecting' | 'connected' | 'reconnecting' | 'error';
+  mock: boolean;
+  host: string; port: number; mountpoint: string;   // không bao giờ gửi password
+  station?: CorsStation;
   observedMsgTypes: { msgType: number; count: number; lastAt: number }[];
-  error?: string; // 'auth-thua' | 'mountpoint-khong-ton-tai' | 'stream-khong-gia-ma-GGA' | ...
+  ephemerisCount: Partial<Record<GnssSystem, number>>;
+  /** Từ sourcetable: mã mountpoint quảng cáo + danh sách mountpoint có phát quỹ đạo. */
+  sourcetable?: { advertised: string | null; withEphemeris: { mountpoint: string; lat: number; lon: number; formatDetails: string }[] };
+  diagnosis: ('no-station-position' | 'no-ephemeris' | 'no-msm' | 'too-few-sats')[];
+  error?: 'auth-failed' | 'mountpoint-not-found' | 'connect-failed' | 'stream-timeout';
 }
-
-/** ECEF XYZ (m, WGS84) → geodetic (độ, m) — cho vị trí trạm. */
-export function ecefToWgs84(x: number, y: number, z: number): { lat: number; lon: number; alt: number };
-
-/** Vị trí sample trong ENU gốc tại ARP trạm (m) — chỉ dùng cho quick-test trên page /cors. */
-export function enuToCorsBase(sample: { lat: number; lon: number; alt: number | null }, base: CorsBase): { e: number; n: number; u: number | null };
 ```
 
-- `enuToCorsBase`: tái dùng ENU có sẵn trong `geo.ts` (`toEnu`, R = 6 371
-  008.8 m, xấp xỉ phẳng < 1 km) — **không thêm `distanceToBase`** (kết quả
-  "cắt sạch mốc CORS" 261029-1110: không dòng khoảng cách mốc CORS trên màn
-  phòng; quick-test chỉ cần E/N của máy trong frame trạm để so với RTD).
-- "Sai số (raw)" của một mẫu = `accuracy` (GPS WGS84, hiện có).
+Message mới (chỉ **thêm** vào `serverMessageSchema`):
 
-### CEP50 — ngoài scope module, không code
+- `{ type: 'cors.state', cors: CorsState }` — khi trạng thái đổi, tối đa 1 lần/giây.
+- `{ type: 'cors.epoch', epoch: CorsEpoch }` — mỗi epoch MSM tính xong.
+- `{ type: 'cors.history', epochs: CorsEpoch[] }` — 1 lần khi socket mở (tối đa 600 epoch ≈ 10 phút).
 
-Module này **không viết CEP50 ở đâu cả**. CEP50 (độ lặp lại) là thuộc tính
-của chính điện thoại và bất biến với gốc (tâm đám mây tính cùng frame nên
-gốc triệt tiêu) — trạm CORS không đóng góp gì vào nó, nên "CEP50 (mốc
-CORS)" vô nghĩa về mặt toán. `pointCloudStats` đo tĩnh hiện có giữ nguyên
-chính, **không sửa, không thêm comment**. Lý do đầy đủ ghi ở `plan.md`
-(Validation Session 3) — code chỉ cần biết: đừng tạo dòng CEP50/mốc CORS
-mới, đừng đụng `stats.ts`.
+## Geodesy (`ecef.ts`)
 
-### Mock feed
+- WGS84: `a = 6378137`, `f = 1/298.257223563`, `e² = f(2 − f)`.
+- `ecefToGeodetic`: lặp 5 vòng như artifact mục 9 (sai < 1 mm); nhánh `p ≈ 0`.
+- `ecefToEnu(target, originEcef)`: ma trận quay theo lat/lon gốc — chính xác ở
+  mọi khoảng cách (thay cho `toEnu` phẳng khi cách trạm xa, R7).
+- `elevationAzimuth(satEcef, stationEcef)`.
 
-`corsMockFeed()` — generator byte stream RTCM3 hợp lệ: frame 1032 (ARP XYZ
-cố định, ví dụ 10.7662, 106.6844 → ECEF) + frame 3040 (12 SV, RTD dạng sin
-chậm, có chế độ `withGga: false` để mô phỏng stream không GGA). CRC tính
-bằng đúng thuật toán BKG (xem phase 2), fixture này dùng cho test parser
-và mock mode server.
+## Toán quỹ đạo (`orbit.ts`)
 
-### Config (env) — giá trị mặc định theo caster RTK2go công cộng
+- Hằng số:
+  - GPS: GM = 3.986005e14, Ω̇e = 7.2921151467e-5.
+  - Galileo: GM = 3.986004418e14, Ω̇e = 7.2921151467e-5.
+  - BeiDou (CGCS2000): GM = 3.986004418e14, Ω̇e = 7.292115e-5.
+  - c = 299792458, F = −4.442807633e-10.
+- `keplerSatPos(eph, tTx)`: thuật toán IS-GPS-200 (giải Kepler lặp, hiệu chỉnh
+  điều hòa Cuc/Cus/Crc/Crs/Cic/Cis). BeiDou GEO (PRN 1–5, 59–63): tính trong
+  hệ quán tính rồi quay −5° quanh X và theo Ω̇e·tk quanh Z (theo BDS-SIS-ICD).
+- `satClockBias(eph, t)`: `af0 + af1·dt + af2·dt²` + hiệu ứng tương đối
+  `F·e·√A·sinE`, trừ group delay theo tín hiệu dùng (GPS TGD cho L1 C/A,
+  Galileo BGD E1/E5a, BeiDou TGD1 cho B1I).
+- Thời gian: Galileo GST ≡ GPST; BDT = GPST − 14 s; xử lý vượt tuần (±302400 s).
+
+## Mock feed (`rtcm3-mock.ts`)
+
+- Encoder: `encodeFrame(payloadBits)` (+ CRC-24Q) và encoder 1005, 1006, 1033,
+  MSM4 (GPS 1074, Galileo 1094, BeiDou 1124), 1019, 1046, 1042.
+- Bộ sinh: trạm cố định (10.7662, 106.6844, 10 m → ECEF), một bộ quỹ đạo cố
+  định hợp lệ cho ~8 GPS + ~6 Galileo + ~8 BeiDou (gồm ≥ 1 GEO); mỗi epoch 1 s:
+  `pseudorange = ρ + Sagnac − c·dts + c·dtr_sys + injected(sys, prn, t)` với
+  `injected` = sin chậm biên độ đã biết. Test phase 3 dùng giá trị này.
+- Tùy chọn: `{ ephemeris: false }` (mô phỏng trạm không phát quỹ đạo),
+  `{ station: false }` (thiếu ARP), `{ systems: [...] }`.
+
+## Config (env)
 
 | Env | Mặc định | Ý nghĩa |
 |-----|----------|---------|
 | `CORS_NTRIP_HOST` | unset → module OFF | ví dụ `rtk2go.com` |
-| `CORS_NTRIP_PORT` | `2101` | 2102 = TLS chỉ v2 |
-| `CORS_NTRIP_MOUNTPOINT` | — | tìm trong source table của caster |
-| `CORS_NTRIP_USER` | — | RTK2go: email tùy ý |
-| `CORS_NTRIP_PASS` | `none` | mật khẩu caster RTK2go |
-| `CORS_NTRIP_V2` | `0` | `1` → handshake HTTP/1.1 + chunked; `0` → HTTP/1.0 raw (mặc định, đơn giản) |
-| `CORS_MOCK` | `0` | `1` → feed mock thay caster |
-| `CORS_GGA_ONLY` | `0` | nếu `1` thì khi stream không phát GGA, status báo `error: stream-khong-gia-ma-GGA` |
+| `CORS_NTRIP_PORT` | `2101` | |
+| `CORS_NTRIP_MOUNTPOINT` | — | chọn từ sourcetable (mountpoint có 1019/1046/1042) |
+| `CORS_NTRIP_USER` | — | RTK2go: email thật |
+| `CORS_NTRIP_PASS` | `none` | |
+| `CORS_NTRIP_V2` | `0` | `1` → HTTP/1.1 + chunked |
+| `CORS_MOCK` | `0` | `1` → mock feed đầy đủ; `no-ephemeris`, `no-station` → các biến thể chẩn đoán |
+| `CORS_MIN_ELEVATION_DEG` | `10` | bỏ vệ tinh thấp hơn ngưỡng |
+| `CORS_HISTORY_EPOCHS` | `600` | số epoch giữ trong bộ nhớ và gửi khi socket mở |
 
 ## Acceptance
 
 - [ ] `pnpm --filter @rtk/shared test` + `pnpm typecheck` xanh.
-- [ ] `ecefToWgs84` đối chiếu giá trị tính tay (1 điểm Hanoi) sai < 1e-6 m.
-- [ ] `enuToCorsBase` đúng số học (đối chiếu `toEnu` hiện có trong `geo.ts`);
-      chỉ dùng cho quick-test page `/cors`, **không** được dùng để thêm dòng
-      vào màn phòng.
-- [ ] `corsMockFeed()` sinh byte qua được CRC check (mô tả trong phase 2).
-- [ ] CORS off → `Config.cors.enabled === false`, server không đổi hành vi.
+- [ ] `ecefToGeodetic(geodeticToEcef(p)) ≈ p` (< 1e-9°, < 1 mm) cho Hà Nội, TP.HCM; điểm (0,0,0) ↔ (6378137,0,0).
+- [ ] `keplerSatPos` khớp vector tham chiếu (1 bộ quỹ đạo GPS, 1 Galileo, 1 BeiDou MEO, 1 BeiDou GEO lấy từ RINEX nav thật, so với RTKLIB/georinex) < 1 m; đồng hồ < 1 ns.
+- [ ] Mọi khung `corsMockFeed()` qua CRC-24Q.
+- [ ] Không env CORS → `config.cors.enabled === false`.
 
 ## Rollback
 
-Xóa `cors.ts`/test, revert `schema.ts`, `index.ts`, `config.ts`. Không DB.
+Xóa các file mới, revert `schema.ts`, `index.ts`, `config.ts`. Không DB.

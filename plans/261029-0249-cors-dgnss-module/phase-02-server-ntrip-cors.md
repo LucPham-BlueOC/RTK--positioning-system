@@ -1,93 +1,97 @@
 ---
-title: "Phase 2: server - NTRIP client va CORS hub"
+title: "Phase 2: server - NTRIP client, framer + decoder RTCM3, sourcetable"
 status: todo
 ---
 
-# Phase 2: server — NTRIP client + CORS hub
+# Phase 2: server — NTRIP client, framer + decoder RTCM3, sourcetable
 
 ## Overview
 
-Server tự mở kết nối NTRIP tới caster (RTK2go: `rtk2go.com:2101`, hoặc mock
-feed khi `CORS_MOCK=1`), parse RTCM3, giữ `CorsState` (vị trí ARP trạm, các mã
-đang nhận, sai số GGA theo thời gian nếu có) và broadcast `cors.state` cho **mọi**
-WebSocket client (kể cả người chưa vào phòng — page `/cors` hoạt động độc
-lập). Module tắt yên lặng khi chưa cấu hình; không ảnh hưởng luồng hiện có.
+Server mở kết nối NTRIP tới caster (RTK2go `rtk2go.com:2101`, hoặc mock feed
+khi `CORS_MOCK` bật), tách khung RTCM3 từ stream TCP, và decode các mã cần cho
+engine phase 3. Server cũng tải sourcetable để chẩn đoán và gợi ý mountpoint
+có phát quỹ đạo (Q3). Phase này chỉ sản xuất sự kiện đã decode; tính sai số
+và broadcast nằm ở phase 3.
 
-## Context — giao thức (đã kiểm chứng bởi user, thay thế thiết kế cũ)
+Tham chiếu: artifact mục 4 (khung), 5 (danh mục mã), 6 (ARP), 10 (NTRIP).
+Bố cục bit theo RTKLIB `src/rtcm3.c` và pyrtcm (R2) — không copy chuẩn trả phí.
 
-- **NTRIP v1**: request HTTP/1.0 — `GET /<mountpoint> HTTP/1.0` +
-  `User-Agent: NTRIP/1.0`, kèm `Authorization: Basic base64(user:pass)` nếu có.
-  Caster trả header ICY-style rồi là **binary RTCM stream thô** trên cùng
-  socket TCP. Không có `Expect: 100-continue`.
-- **NTRIP v2**: HTTP/1.1 với `Transfer-Encoding: chunked` +
-  `Ntrip-Version: Ntrip/2.0`. Mặc định dùng **v1** (đơn giản, `CORS_NTRIP_V2=1`
-  để bật v2).
-- **RTK2go**: caster công cộng, port `2101` (plain TCP, v1+v2), `2102` (TLS,
-  chỉ v2). Username: email bất kỳ, password: `none`.
-- **CRC-24Q** (theo BKG rtcm-ntrip source): đa thức `0x01864CFB`, init `0`,
-  shift-register MSB-first trên (word0, word1, payload). Frame: `0xD3` +
-  16 bit word0 (msgType 10 bit, 6 bit dự trữ, 10 bit độ dài) + 16 bit word1
-  + payload (độ dài từ 2 bit cao nhất của word1) + CRC 3 byte.
-- **Mã parse** (parser in-house, ~250 dòng, không phụ thuộc package ngoài):
-  - `1004` GPS stationary ARP (ECEF XYZ, ±0.001 m), `1005` GLONASS
-    stationary ARP, `1032`/`1033` stationary receiver ARP (ECEF XYZ / GLL
-    lat/lon/alt) → **vị trí absolute trạm**;
-  - `3040`–`3044` (GPS SV1-12 … SV61-72) và `3151` (GLONASS): **RTD
-    residual per SV, unit 0.01 m, SGN** → sai số trạm theo thời gian
-    (max/|RTD|, rms) — stream RTK2go có thể **không phát GGA** (típ:
-    1033+MSM4), nên UI hiển thị trạng thái "không có mã GGA" thay vì crash.
+## NTRIP (`ntrip.ts`)
+
+- **v1** (mặc định): `net.connect`, gửi
+  `GET /<mp> HTTP/1.0\r\nUser-Agent: NTRIP rtk-cors/1.0\r\nAuthorization: Basic base64(user:pass)\r\n\r\n`.
+  Đọc dòng đầu tới `\r\n\r\n`: `ICY 200 OK` → stream; `HTTP/1.x 401` →
+  `auth-failed`; `SOURCETABLE 200 OK` → `mountpoint-not-found`.
+- **v2** (`CORS_NTRIP_V2=1`): HTTP/1.1, `Host`, `Ntrip-Version: Ntrip/2.0`;
+  un-chunk `Transfer-Encoding: chunked` trước khi đưa byte vào framer.
+- Không có byte nào trong 30 s → `stream-timeout`, đóng socket để hub reconnect.
+- **Sourcetable**: `GET / HTTP/1.0` một lần khi khởi động và mỗi 1 giờ. Parse
+  dòng `STR;mountpoint;identifier;format;format-details;...;lat;lon;...`.
+  Trả về format-details của mountpoint đang dùng và danh sách mountpoint có
+  `1019`, `1046` hoặc `1042` trong format-details (sắp theo khoảng cách tới
+  mountpoint đang dùng nếu có tọa độ).
+- Không bao giờ log hoặc gửi password lên client.
+
+## Framer (`rtcm3-framer.ts`)
+
+- Bộ đệm byte; tìm `0xD3`, đọc độ dài 10 bit tại bit 14, chờ đủ `3 + N + 3`
+  byte, kiểm tra CRC-24Q trên `3 + N` byte. Sai CRC → bỏ 1 byte, tìm `0xD3`
+  kế tiếp. Mã message = `getbitu(payload, 0, 12)`.
+- Đếm mọi mã quan sát được (`observedMsgTypes`), kể cả mã không decode.
+- Helper `getbitu`/`getbits` (đến 38 bit có dấu — dùng arithmetic số thực,
+  không dùng bitwise 32 bit của JS).
+
+## Decoder (`rtcm3-decode.ts`)
+
+| Mã | Ra | Ghi chú |
+|----|----|---------|
+| 1005 / 1006 | ECEF ARP (+ chiều cao anten 1006) | X tại bit 34, Y 74, Z 114, 38 bit có dấu × 0.0001 m; DF028 tại 152 (16 bit) |
+| 1032 | ECEF ARP trạm vật lý | X/Y/Z tại 42/80/118 |
+| 1033 | Chuỗi anten, serial, máy thu, firmware, serial máy thu | Mỗi chuỗi: 8 bit đếm + ký tự |
+| 1019 | Quỹ đạo GPS | Theo `decode_type1019` RTKLIB |
+| 1046 | Quỹ đạo Galileo I/NAV | Theo `decode_type1046` |
+| 1042 | Quỹ đạo BeiDou | Theo `decode_type1042`; lưu cờ GEO theo PRN |
+| 1074–1077, 1094–1097, 1124–1127 | Epoch MSM: thời gian, mỗi vệ tinh × tín hiệu: pseudorange, phase, CNR, lock | Header + mask chung cho mọi hệ |
+| 108x, 1020, 1230, khác | — | Chỉ đếm (GLONASS làm sau, Q6) |
+
+### MSM (artifact Q2)
+
+- Header: DF002 (12), DF003 (12), epoch time (30, ms trong tuần; BeiDou theo
+  BDT), multiple-message bit (1), IODS (3), dự trữ (7), clock steering (2),
+  external clock (2), smoothing (1), smoothing interval (3), satellite mask
+  (64), signal mask (32), cell mask (Nsat × Nsig ≤ 64).
+- Dữ liệu vệ tinh: rough range số ms nguyên DF397 (8) + phần dư DF398 (10,
+  2⁻¹⁰ ms); MSM5/7 thêm extended info (4) và rough rate DF399 (14).
+- Dữ liệu tín hiệu: MSM4 fine pseudorange DF400 (15, 2⁻²⁴ ms), fine phase
+  DF401 (22), lock DF402 (4), half-cycle (1), CNR DF403 (6). MSM7 dùng DF405
+  (20, 2⁻²⁹ ms), DF406 (24), DF407 (10), half-cycle (1), DF408 (10, 2⁻⁴ dB-Hz),
+  fine rate DF404 (15).
+- Pseudorange (m) = `(rough_ms + fine_ms) × 299792.458`. Giá trị fine bằng mã
+  "không hợp lệ" (bit cao nhất = 1, còn lại = 0) → bỏ ô đó.
+- Gom các message cùng epoch theo multiple-message bit; phát sự kiện `epoch`
+  khi message cuối của epoch tới.
+- Tín hiệu dùng cho engine: GPS L1 C/A (`1C`), Galileo E1 (`1C`/`1X`), BeiDou
+  B1I (`2I`). Bảng mã tín hiệu theo signal mask từ RTKLIB `msm_sig_*`.
+- Số bit trong mục này lấy từ RTKLIB/pyrtcm theo trí nhớ; test đối chiếu
+  pyrtcm trên stream thật (phase 5) là điều kiện bắt buộc trước khi tin số.
 
 ## Files
 
 | Action | Path | Change |
 |--------|------|--------|
-| create | `apps/server/src/cors/rtcm3.ts` | Parser: tách frame 0xD3 trong raw stream, tính CRC-24Q (BKG), decode mã stationary (1004/1005/1032/1033) → base, mã GGA (3040–3044/3151) → RTD; log mọi mã quan sát được (kể cả MSM) cho chẩn đoán |
-| create | `apps/server/src/cors/rtcm3.test.ts` | CRC-24Q vector; parse 1032/1033 + 3040 từ `corsMockFeed` phase 1 + 1 fixture byte cứng |
-| create | `apps/server/src/cors/ntrip.ts` | NTRIP v1 client (`net.connect`, request line HTTP/1.0 + Basic auth, đọc header tới dòng trống, sau đó stream RTCM) + chế độ v2 (HTTP/1.1, un-chunk khi `CORS_NTRIP_V2=1`); trả EventEmitter feed |
-| create | `apps/server/src/cors/hub.ts` | `CorsHub`: `CorsState` + bounded `ggaHistory`, reconnect backoff 1s→5s cap, đếm `observedMsgTypes`; feed source inject (ntrip / mock) cho test |
-| modify | `apps/server/src/config.ts` | (phase 1) `cors: { enabled, host, port, mountpoint, user, pass, ntripV2, mock }` |
-| modify | `apps/server/src/app.ts` | `CorsHub.onState` → gửi `cors.state` cho **mọi socket đang mở** (map socket riêng; không chỉ room member) + gửi 1 lần khi socket open; `corsHub.shutdown()` trong `onClose` |
-| modify | `apps/server/src/index.ts` | `corsHub.start()` khi `cors.enabled` (host thật hoặc mock) |
-
-## Design
-
-```
-caster RTK2go (TCP 2101) / mockFeed
-        │ NTRIP: HTTP/1.0 request → header → RTCM3 binary
-        ▼
-  ntrip.ts → rtcm3.ts parser
-        │ event: base (1032/1033), gga (3040…/3151), msgTypeSeen
-        ▼
-  hub.ts (CORS hub): state + ggaHistory bounded + backoff reconnect
-        │ onState(CorsState)
-        ▼
-  app.ts: { type: 'cors.state', cors } → MỌI socket + 1 lần khi socket open
-```
-
-- `CorsState.gga` = điểm (at, msgType, maxRtdM, rmsRtdM); history giữ
-  `CORS_HISTORY_POINTS` (mặc định 1800) điểm — biểu đồ "sai số trạm theo
-  thời gian" trên page `/cors`.
-- Khi stream không có GGA (stream RTK2go típ): `gga`/`ggaHistory` rỗng,
-  `observedMsgTypes` đầy đủ → UI page CORS hiện "Trạm phát các mã: 1033,
-  1074, … — không có GGA; không có sai số trạm để vẽ".
-- CORS state **toàn cục, không theo phòng, không lưu DB**.
+| create | `apps/server/src/cors/ntrip.ts` | Client v1/v2, sourcetable |
+| create | `apps/server/src/cors/rtcm3-framer.ts` | Tách khung + CRC + bit reader |
+| create | `apps/server/src/cors/rtcm3-decode.ts` | Decoder bảng trên |
+| create | `apps/server/src/cors/{ntrip,rtcm3-framer,rtcm3-decode}.test.ts` | Unit test |
+| create | `apps/server/test/fixtures/` | Stream thật đã ghi (phase 5) + JSON kỳ vọng sinh bằng pyrtcm |
 
 ## Acceptance
 
-- [ ] `pnpm --filter @rtk/server test` xanh:
-      - CRC-24Q: frame mock 1032/3040 qua check.
-      - Parser: fixture 1033 (GLL) → đúng lat/lon/alt base (tolerance < 1e-6°);
-        fixture 3040 → đúng max/rms RTD (đơn vị 0.01 m).
-      - Hub: mock feed → `connected` + base; cắt stream giả lập →
-        `reconnecting` → khôi phục (fake timers); history bounded đúng giới hạn.
-      - NTRIP handshake: mock TCP caster local (`net.createServer`) → client
-        gửi đúng request line `GET /mp HTTP/1.0` + `Authorization: Basic`;
-        mã mountpoint sai / 401 → `error` text rõ trong `CorsState`.
-- [ ] CORS off (không env, không mock) → server y hệt hiện tại: không TCP
-      connect, không log.
-- [ ] Client chưa vào phòng (mở `/ws` trần như page `/cors` sẽ làm) nhận
-      được `cors.state` khi connect và khi state đổi.
+- [ ] Framer: khung mock qua CRC; byte rác chen giữa → resync, không mất khung sau; khung bị cắt đôi qua 2 chunk TCP vẫn ghép đúng.
+- [ ] Decode mock 1005/1006/1033/1019/1046/1042/MSM4 → đúng giá trị đã encode ở phase 1.
+- [ ] NTRIP với `net.createServer` giả caster: request line + Basic auth đúng; `401` → `auth-failed`; `SOURCETABLE 200 OK` → `mountpoint-not-found`; v2 un-chunk đúng; sourcetable parse ra danh sách có quỹ đạo.
+- [ ] CORS off → không TCP connect, không log.
 
 ## Rollback
 
-Xóa `apps/server/src/cors/`, revert 2 file `app.ts`/`index.ts`.
+Xóa `apps/server/src/cors/` và fixtures.
