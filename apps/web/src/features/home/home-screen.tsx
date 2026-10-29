@@ -112,11 +112,6 @@ export function HomeScreen() {
       >
         {busy ? 'Đang kết nối…' : 'Tạo phòng mới'}
       </Button>
-
-      <p className="mt-auto text-xs text-slate-500">
-        Khi đo: ra chỗ trời thoáng, giữ màn hình sáng và không chuyển sang ứng dụng khác. iPhone
-        ngừng gửi vị trí khi tắt màn hình.
-      </p>
     </main>
   );
 }

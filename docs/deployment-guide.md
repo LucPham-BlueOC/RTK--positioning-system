@@ -76,14 +76,16 @@ Vite chuyển `/api`, `/ws`, `/healthz` sang server và đã cho phép host
 
 ## Biến môi trường
 
-Tất cả đều có giá trị mặc định; chỉ đặt khi cần thay đổi.
+Tất cả đều có giá trị mặc định; chỉ đặt khi cần thay đổi. Cách tiện nhất là chép
+[`.env.example`](../.env.example) thành `.env` ở gốc repo: `pnpm dev` và `pnpm start`
+tự đọc file này nếu có. Biến đặt trong terminal được ưu tiên hơn giá trị trong `.env`.
 
 | Biến | Ý nghĩa | Mặc định |
 |------|---------|----------|
 | `HOST` | Địa chỉ server lắng nghe | `127.0.0.1` |
 | `PORT` | Cổng server | `8787` |
-| `DATABASE_PATH` | File SQLite | `data/app.db` |
-| `WEB_DIST_PATH` | Thư mục build giao diện | `apps/web/dist` |
+| `DATABASE_PATH` | File SQLite (đường dẫn tương đối tính từ gốc repo) | `data/app.db` |
+| `WEB_DIST_PATH` | Thư mục build giao diện (tương đối tính từ gốc repo) | `apps/web/dist` |
 | `ROOM_TTL_HOURS` | Sau bao lâu thì không vào phòng được nữa | `24` |
 | `DATA_RETENTION_DAYS` | Sau bao lâu thì xóa phòng và dữ liệu | `7` |
 | `PAIRING_WINDOW_MS` | Ngưỡng ghép mẫu khi xuất CSV | `1000` |
@@ -104,7 +106,8 @@ hạn thử mã phòng dựa vào header `cf-connecting-ip` mà tunnel gắn và
 đổi `HOST` thành `0.0.0.0`, máy trong LAN có thể giả header này.
 
 Secret duy nhất là tài khoản NTRIP (`CORS_NTRIP_USER`, `CORS_NTRIP_PASS`). Đặt
-trong biến môi trường của terminal chạy server, không commit. Server không bao giờ
+trong `.env` hoặc biến môi trường của terminal chạy server; `.env` đã nằm trong
+`.gitignore`, không commit. Server không bao giờ
 log hay gửi mật khẩu xuống trình duyệt.
 
 ## Trạm CORS (tùy chọn)
@@ -115,7 +118,9 @@ Page `/cors` hiện sai số của trạm tham chiếu theo từng vệ tinh. C�
    có `1005` hoặc `1006`, MSM (`1074`–`1077`, `1094`–`1097`, `1124`–`1127`) và ít
    nhất một mã quỹ đạo `1019`, `1046` hoặc `1042` trong cột format-details. Trạm
    không phát quỹ đạo thì không tính được sai số.
-2. Chạy server kèm biến môi trường:
+2. Chép `.env.example` thành `.env`, điền `CORS_NTRIP_MOUNTPOINT` và
+   `CORS_NTRIP_USER` (email thật), rồi chạy `pnpm start`. Hoặc đặt thẳng trong
+   terminal:
 
    ```bash
    CORS_NTRIP_HOST=rtk2go.com CORS_NTRIP_MOUNTPOINT=<mountpoint> \
