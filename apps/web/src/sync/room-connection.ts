@@ -8,14 +8,18 @@ import {
 } from '@rtk/shared';
 import { getDeviceId, saveName } from '../lib/device-identity';
 import { ClockSync } from './clock-sync';
-import { mergeSamples, setStore, useRoomStore } from './room-store';
+import { CORS_EPOCH_LIMIT, mergeSamples, setStore, useRoomStore } from './room-store';
 
 const INITIAL_PINGS = 5;
 const PING_INTERVAL_MS = 30_000;
 const MAX_BACKOFF_MS = 5_000;
 const MAX_BATCH = 600;
 
-type Intent = { name: string; role: Role } & ({ kind: 'create' } | { kind: 'join'; code: string });
+type RoomIntent = { name: string; role: Role } & (
+  { kind: 'create' } | { kind: 'join'; code: string }
+);
+/** `cors` watches the CORS station only, without joining a room. */
+type Intent = RoomIntent | { kind: 'cors' };
 export type LocalFix = Omit<SampleInput, 'seq' | 'tServer'>;
 
 const ERROR_TEXT: Record<string, string> = {
@@ -46,7 +50,7 @@ class RoomConnection {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private joined = false;
 
-  start(intent: Intent) {
+  start(intent: RoomIntent) {
     this.stop();
     this.intent = intent;
     saveName(intent.name);
@@ -57,6 +61,15 @@ class RoomConnection {
       notice: null,
       deviceId: getDeviceId(),
     });
+    window.addEventListener('online', this.reconnectNow);
+    this.open();
+  }
+
+  /** Opens the socket for the /cors page: same reconnect logic, no room. */
+  watchCors() {
+    if (this.intent?.kind === 'cors') return;
+    this.stop();
+    this.intent = { kind: 'cors' };
     window.addEventListener('online', this.reconnectNow);
     this.open();
   }
@@ -136,6 +149,11 @@ class RoomConnection {
   private onOpen() {
     const intent = this.intent;
     if (!intent) return;
+    if (intent.kind === 'cors') {
+      this.backoff = 1000;
+      setStore({ link: 'online' });
+      return;
+    }
     const who = { deviceId: getDeviceId(), name: intent.name, role: intent.role };
     // A reconnect must not reclaim a slot this device was kicked from.
     if (this.code) this.send({ type: 'room.join', code: this.code, ...who, resume: true });
@@ -191,6 +209,15 @@ class RoomConnection {
       case 'room.deleted':
         this.leave(false);
         setStore({ notice: 'Phòng đã bị xóa.' });
+        return;
+      case 'cors.state':
+        setStore({ cors: msg.cors });
+        return;
+      case 'cors.history':
+        setStore({ corsEpochs: msg.epochs.slice(-CORS_EPOCH_LIMIT) });
+        return;
+      case 'cors.epoch':
+        setStore((s) => ({ corsEpochs: [...s.corsEpochs, msg.epoch].slice(-CORS_EPOCH_LIMIT) }));
         return;
       case 'error':
         if (!this.joined && ERROR_TEXT[msg.code]) {

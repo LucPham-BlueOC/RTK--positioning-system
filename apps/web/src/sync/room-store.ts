@@ -1,4 +1,4 @@
-import type { Role, RoomState, Sample } from '@rtk/shared';
+import type { CorsEpoch, CorsState, Role, RoomState, Sample } from '@rtk/shared';
 import { create } from 'zustand';
 
 export type Phase = 'home' | 'connecting' | 'in-room';
@@ -24,7 +24,15 @@ export interface RoomStore {
   locationError: string | null;
   wakeLock: 'active' | 'unsupported' | 'released';
   dataset: DatasetId;
+  /** The standalone /cors page is open. */
+  corsView: boolean;
+  /** Null until the server reports a CORS module; it never does when the module is off. */
+  cors: CorsState | null;
+  corsEpochs: CorsEpoch[];
 }
+
+/** Epochs kept for the chart, about ten minutes at 1 Hz. */
+export const CORS_EPOCH_LIMIT = 600;
 
 export const useRoomStore = create<RoomStore>(() => ({
   phase: 'home',
@@ -41,6 +49,9 @@ export const useRoomStore = create<RoomStore>(() => ({
   locationError: null,
   wakeLock: 'released',
   dataset: 'live',
+  corsView: location.pathname === '/cors',
+  cors: null,
+  corsEpochs: [],
 }));
 
 export const setStore = useRoomStore.setState;
