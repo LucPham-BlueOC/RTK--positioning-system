@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { corsEpochSchema, corsStateSchema } from './cors';
 
 /** Room codes avoid look-alike characters (0/O, 1/I/L) so they can be read aloud. */
 export const ROOM_CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -147,5 +148,9 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('sample.ack'), maxSeq: z.number().int() }),
   z.object({ type: z.literal('sample.broadcast'), samples: z.array(sampleSchema) }),
   z.object({ type: z.literal('error'), code: errorCodeSchema, message: z.string() }),
+  /** Sent to every socket, in a room or not, while the CORS module is on. */
+  z.object({ type: z.literal('cors.state'), cors: corsStateSchema }),
+  z.object({ type: z.literal('cors.epoch'), epoch: corsEpochSchema }),
+  z.object({ type: z.literal('cors.history'), epochs: z.array(corsEpochSchema) }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
