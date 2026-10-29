@@ -4,6 +4,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import { clientMessageSchema, type ServerMessage } from '@rtk/shared';
 import Fastify from 'fastify';
 import type { Config } from './config';
+import { CorsHub, createCorsHub } from './cors/hub';
 import { registerExport } from './export';
 import { RoomHub } from './rooms';
 import { Store } from './store';
@@ -25,10 +26,20 @@ function clientIp(
   return (typeof cf === 'string' && cf) || socket?.remoteAddress || 'unknown';
 }
 
-export async function buildApp(config: Config, opts: { logger?: boolean } = {}) {
+export async function buildApp(config: Config, opts: { logger?: boolean; corsHub?: CorsHub } = {}) {
   const app = Fastify({ logger: opts.logger ?? false });
   const store = new Store(config.databasePath);
   const hub = new RoomHub(store, config);
+  const cors = opts.corsHub ?? (config.cors.enabled ? createCorsHub(config.cors) : null);
+
+  /** CORS data goes to every open socket, whether or not it joined a room. */
+  const sockets = new Set<{ send(data: string): void; readyState: number; OPEN: number }>();
+  const broadcast = (msg: ServerMessage) => {
+    const data = JSON.stringify(msg);
+    for (const s of sockets) if (s.readyState === s.OPEN) s.send(data);
+  };
+  cors?.onState((state) => broadcast({ type: 'cors.state', cors: state }));
+  cors?.onEpoch((epoch) => broadcast({ type: 'cors.epoch', epoch }));
 
   await app.register(fastifyWebsocket, { options: { maxPayload: MAX_MESSAGE_BYTES } });
 
@@ -49,6 +60,11 @@ export async function buildApp(config: Config, opts: { logger?: boolean } = {}) 
       clientIp(req.headers, req.socket),
       req.headers['user-agent'] ?? null,
     );
+    if (cors) {
+      sockets.add(socket);
+      conn.peer.send({ type: 'cors.state', cors: cors.state });
+      conn.peer.send({ type: 'cors.history', epochs: cors.history });
+    }
 
     let windowStart = Date.now();
     let count = 0;
@@ -79,7 +95,10 @@ export async function buildApp(config: Config, opts: { logger?: boolean } = {}) 
         conn.peer.send({ type: 'error', code: 'bad-message', message: 'Lỗi xử lý message' });
       }
     });
-    socket.on('close', () => hub.disconnect(conn));
+    socket.on('close', () => {
+      sockets.delete(socket);
+      hub.disconnect(conn);
+    });
   });
 
   registerExport(app, store, config);
@@ -98,9 +117,10 @@ export async function buildApp(config: Config, opts: { logger?: boolean } = {}) 
 
   app.addHook('onClose', async () => {
     clearInterval(purgeTimer);
+    cors?.shutdown();
     hub.shutdown();
     store.close();
   });
 
-  return { app, store, hub };
+  return { app, store, hub, cors };
 }
