@@ -1,7 +1,7 @@
 ---
 title: "cors-dgnss-module"
 description: "Module CORS: server kết nối caster NTRIP (RTK2go), parse RTCM3 chuẩn (ARP 1005/1006/1032, MSM, quỹ đạo 1019/1042/1046), tự tính sai số tổng từng vệ tinh của trạm (GPS + Galileo + BeiDou) theo thời gian, đẩy qua WebSocket /ws sẵn có lên page /cors. Màn phòng không đổi."
-status: pending
+status: completed
 priority: P1
 effort: 46h
 tags: [feature, backend, frontend, gnss]
@@ -97,12 +97,12 @@ ARP và 3040–3044/3151 làm "GGA" — các mã đó sai hoặc không tồn t�
 
 | # | Phase | Effort | Status |
 |---|-------|--------|--------|
-| 1 | [Shared: types, geodesy, toán quỹ đạo, mock feed](./phase-01-start.md) | 10h | Pending |
-| 2 | [Server: NTRIP client, framer + decoder RTCM3, sourcetable](./phase-02-server-ntrip-cors.md) | 12h | Pending |
-| 3 | [Server: engine sai số trạm + CORS hub + WebSocket](./phase-03-residual-engine.md) | 10h | Pending |
-| 4 | [Web UI: page `/cors`](./phase-04-web-ui-cors.md) | 7h | Pending |
-| 5 | [Tests & validation với stream thật](./phase-05-tests-validation.md) | 5h | Pending |
-| 6 | [Docs](./phase-06-docs.md) | 2h | Pending |
+| 1 | [Shared: types, geodesy, toán quỹ đạo, mock feed](./phase-01-start.md) | 10h | Done |
+| 2 | [Server: NTRIP client, framer + decoder RTCM3, sourcetable](./phase-02-server-ntrip-cors.md) | 12h | Done |
+| 3 | [Server: engine sai số trạm + CORS hub + WebSocket](./phase-03-residual-engine.md) | 10h | Done |
+| 4 | [Web UI: page `/cors`](./phase-04-web-ui-cors.md) | 7h | Done |
+| 5 | [Tests & validation với stream thật](./phase-05-tests-validation.md) | 5h | Done |
+| 6 | [Docs](./phase-06-docs.md) | 2h | Done |
 
 Phụ thuộc: 1 → 2 → 3 → 4; 5 chạy theo từng phase và chốt cuối; 6 sau cùng.
 
@@ -142,12 +142,32 @@ Phụ thuộc: 1 → 2 → 3 → 4; 5 chạy theo từng phase và chốt cuối
 - Hệ quả: lõi tính sai số của giai đoạn 2 được kéo lên giai đoạn 1 → thêm
   phase 3 (engine), effort 16h → 46h.
 
+### Session 6 (261029, triển khai — khác biệt so với plan)
+
+- Thêm `packages/shared/src/rtcm3.ts` (CRC-24Q, đọc/ghi bit, bảng bố cục 1005/1006/
+  1032/1019/1046/1042, hằng số MSM) để encoder mock và decoder server dùng chung một
+  định nghĩa bố cục. Thêm `apps/server/src/cors/mock-feed.ts` (phát mock như caster)
+  và `apps/web/src/features/cors/cors-text.ts` (nhãn tiếng Việt).
+- Mock mặc định phát MSM7 (độ phân giải 0,6 mm) để kiểm tiêu chí < 1 cm; MSM4 vẫn
+  có (`msmLevel: 4`) và được test với dung sai 2,5 cm (độ phân giải 1,8 cm).
+- Vector tham chiếu quỹ đạo: IGS BRDC ngày 2026-298 (BKG) và cssrlib `eph2pos`, thay
+  cho RTKLIB `convbin`/georinex.
+- Fixture stream thật lấy từ caster Centipede (`1CEN`, tài khoản khách công khai)
+  thay cho RTK2go, vì RTK2go cần email thật của người dùng. Kết quả: decode khớp
+  pyrtcm, vị trí vệ tinh khớp cssrlib < 1 m, sai số tổng RMS ≈ 3,6 m, 24 vệ tinh.
+- Bỏ khớp IODE (MSM không mang IODE); chỉ dùng tuổi quỹ đạo. Thêm lý do bỏ
+  `unhealthy`, `too-few-sats` và trường `firstAt` (tính tần suất) vào schema.
+- Test WebSocket CORS ở file mới `apps/server/test/cors-ws.test.ts`;
+  `server.test.ts` và `two-phones.spec.ts` không đổi.
+- Chưa chạy với RTK2go thật (cần email); chạy tay kịch bản rút mạng chưa làm, backoff
+  được test bằng fake timers.
+
 ## Success Criteria
 
-- [ ] Framer + decoder có unit test và khớp pyrtcm trên stream thật.
-- [ ] Engine tái tạo đúng sai số tiêm vào mock feed; vị trí vệ tinh khớp tham chiếu.
-- [ ] Server broadcast `cors.state`/`cors.epoch`/`cors.history` cho mọi socket; reconnect; chẩn đoán thiếu quỹ đạo/ARP.
-- [ ] Page `/cors` 4 khối; màn phòng không đổi; e2e hiện có xanh.
-- [ ] Không cấu hình CORS → không regression.
+- [x] Framer + decoder có unit test và khớp pyrtcm trên stream thật.
+- [x] Engine tái tạo đúng sai số tiêm vào mock feed; vị trí vệ tinh khớp tham chiếu.
+- [x] Server broadcast `cors.state`/`cors.epoch`/`cors.history` cho mọi socket; reconnect; chẩn đoán thiếu quỹ đạo/ARP.
+- [x] Page `/cors` 4 khối; màn phòng không đổi; e2e hiện có xanh.
+- [x] Không cấu hình CORS → không regression.
 
 <!-- slug: cors-dgnss-module -->

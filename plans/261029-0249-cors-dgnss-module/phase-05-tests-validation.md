@@ -1,6 +1,6 @@
 ---
 title: "Phase 5: tests va validation voi stream that"
-status: todo
+status: done
 ---
 
 # Phase 5: Tests & validation với stream thật
@@ -35,10 +35,10 @@ không đổi.
 
 ## Acceptance (chạy thật)
 
-- [ ] `pnpm test` + `pnpm typecheck` + `pnpm lint` toàn repo xanh.
-- [ ] `pnpm test:e2e` (two-phones + cors) xanh.
-- [ ] Fixture thật khớp pyrtcm; engine trên fixture cho sai số hợp lý (< 30 m, phần lớn vài mét).
-- [ ] Chạy tay:
+- [x] `pnpm test` + `pnpm typecheck` + `pnpm lint` toàn repo xanh.
+- [x] `pnpm test:e2e` (two-phones + cors) xanh.
+- [x] Fixture thật khớp pyrtcm; engine trên fixture cho sai số hợp lý (< 30 m, phần lớn vài mét). Fixture từ Centipede `1CEN`, không phải RTK2go.
+- [ ] Chạy tay (chưa làm với RTK2go thật — cần email của người dùng; CORS off và `CORS_MOCK=1` đã kiểm qua e2e):
   - không env CORS → `/healthz` OK, không TCP connect, màn phòng y hệt.
   - `CORS_MOCK=1` → `/cors` đúng 4 khối.
   - thật: `CORS_NTRIP_HOST=rtk2go.com CORS_NTRIP_MOUNTPOINT=<mp> CORS_NTRIP_USER=<email>` → kết nối, có sai số mỗi giây, rút mạng → reconnect với backoff.

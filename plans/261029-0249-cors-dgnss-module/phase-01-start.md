@@ -1,6 +1,6 @@
 ---
 title: "Phase 1: shared - types, geodesy, toan quy dao, mock feed"
-status: todo
+status: done
 ---
 
 # Phase 1: shared — types, geodesy, toán quỹ đạo, mock feed
@@ -130,11 +130,11 @@ Message mới (chỉ **thêm** vào `serverMessageSchema`):
 
 ## Acceptance
 
-- [ ] `pnpm --filter @rtk/shared test` + `pnpm typecheck` xanh.
-- [ ] `ecefToGeodetic(geodeticToEcef(p)) ≈ p` (< 1e-9°, < 1 mm) cho Hà Nội, TP.HCM; điểm (0,0,0) ↔ (6378137,0,0).
-- [ ] `keplerSatPos` khớp vector tham chiếu (1 bộ quỹ đạo GPS, 1 Galileo, 1 BeiDou MEO, 1 BeiDou GEO lấy từ RINEX nav thật, so với RTKLIB/georinex) < 1 m; đồng hồ < 1 ns.
-- [ ] Mọi khung `corsMockFeed()` qua CRC-24Q.
-- [ ] Không env CORS → `config.cors.enabled === false`.
+- [x] `pnpm --filter @rtk/shared test` + `pnpm typecheck` xanh.
+- [x] `ecefToGeodetic(geodeticToEcef(p)) ≈ p` (< 1e-9°, < 1 mm) cho Hà Nội, TP.HCM; điểm (0,0,0) ↔ (6378137,0,0).
+- [x] `keplerSatPos` khớp vector tham chiếu (1 bộ quỹ đạo GPS, 1 Galileo, 1 BeiDou MEO, 1 BeiDou GEO lấy từ RINEX nav thật, so với RTKLIB/georinex) < 1 m; đồng hồ < 1 ns.
+- [x] Mọi khung `corsMockFeed()` qua CRC-24Q.
+- [x] Không env CORS → `config.cors.enabled === false`.
 
 ## Rollback
 

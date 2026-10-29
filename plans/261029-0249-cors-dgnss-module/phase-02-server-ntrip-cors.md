@@ -1,6 +1,6 @@
 ---
 title: "Phase 2: server - NTRIP client, framer + decoder RTCM3, sourcetable"
-status: todo
+status: done
 ---
 
 # Phase 2: server — NTRIP client, framer + decoder RTCM3, sourcetable
@@ -87,10 +87,10 @@ Bố cục bit theo RTKLIB `src/rtcm3.c` và pyrtcm (R2) — không copy chuẩn
 
 ## Acceptance
 
-- [ ] Framer: khung mock qua CRC; byte rác chen giữa → resync, không mất khung sau; khung bị cắt đôi qua 2 chunk TCP vẫn ghép đúng.
-- [ ] Decode mock 1005/1006/1033/1019/1046/1042/MSM4 → đúng giá trị đã encode ở phase 1.
-- [ ] NTRIP với `net.createServer` giả caster: request line + Basic auth đúng; `401` → `auth-failed`; `SOURCETABLE 200 OK` → `mountpoint-not-found`; v2 un-chunk đúng; sourcetable parse ra danh sách có quỹ đạo.
-- [ ] CORS off → không TCP connect, không log.
+- [x] Framer: khung mock qua CRC; byte rác chen giữa → resync, không mất khung sau; khung bị cắt đôi qua 2 chunk TCP vẫn ghép đúng.
+- [x] Decode mock 1005/1006/1033/1019/1046/1042/MSM4 → đúng giá trị đã encode ở phase 1.
+- [x] NTRIP với `net.createServer` giả caster: request line + Basic auth đúng; `401` → `auth-failed`; `SOURCETABLE 200 OK` → `mountpoint-not-found`; v2 un-chunk đúng; sourcetable parse ra danh sách có quỹ đạo.
+- [x] CORS off → không TCP connect, không log.
 
 ## Rollback
 

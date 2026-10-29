@@ -1,6 +1,6 @@
 ---
 title: "Phase 4: web UI - page /cors"
-status: todo
+status: done
 ---
 
 # Phase 4: web UI — page `/cors`
@@ -42,11 +42,11 @@ giá trị điện thoại.
 
 ## Acceptance
 
-- [ ] `CORS_MOCK=1`: `/cors` (không vào phòng) hiện "Đã kết nối (mock)", marker trạm đúng tọa độ mock, biểu đồ có đường cho vệ tinh GPS/Galileo/BeiDou, quick-test ra raw + E/N + RMS.
-- [ ] `CORS_MOCK=no-ephemeris`: khối 3 ghi "Trạm không phát quỹ đạo vệ tinh, không tính được sai số" + danh sách gợi ý (nếu có sourcetable).
-- [ ] CORS off: `/cors` hiện hướng dẫn env; màn phòng y hệt hiện tại.
-- [ ] Biểu đồ không lag với 600 epoch × ~25 vệ tinh (giới hạn điểm vẽ, tắt animation).
-- [ ] `pnpm --filter @rtk/web build` + typecheck xanh.
+- [x] `CORS_MOCK=1`: `/cors` (không vào phòng) hiện "Đã kết nối (mock)", marker trạm đúng tọa độ mock, biểu đồ có đường cho vệ tinh GPS/Galileo/BeiDou, quick-test ra raw + E/N + RMS.
+- [x] `CORS_MOCK=no-ephemeris`: khối 3 ghi "Trạm không phát quỹ đạo vệ tinh, không tính được sai số" + danh sách gợi ý (nếu có sourcetable).
+- [x] CORS off: `/cors` hiện hướng dẫn env; màn phòng y hệt hiện tại.
+- [x] Biểu đồ không lag với 600 epoch × ~25 vệ tinh (giới hạn điểm vẽ, tắt animation).
+- [x] `pnpm --filter @rtk/web build` + typecheck xanh.
 
 ## Rollback
 

@@ -1,6 +1,6 @@
 ---
 title: "Phase 3: server - engine sai so tram, CORS hub, WebSocket"
-status: todo
+status: done
 ---
 
 # Phase 3: server — engine sai số trạm + CORS hub + WebSocket
@@ -69,14 +69,14 @@ Không có ARP → không tính, `diagnosis: no-station-position`. Không có qu
 
 ## Acceptance
 
-- [ ] Mock feed có sai số tiêm vào `injected(sys, prn, t)`: engine trả
+- [x] Mock feed có sai số tiêm vào `injected(sys, prn, t)`: engine trả
       `residual ≈ injected − median_sys(injected)` sai < 1 cm cho mọi vệ tinh
       GPS/Galileo/BeiDou (kể cả BeiDou GEO).
-- [ ] `clockBiasM[sys]` ≈ `c·dtr_sys + median_sys(injected)` của mock (< 1 cm).
-- [ ] Mock `no-ephemeris` → `diagnosis` có `no-ephemeris`, không có epoch sai số, không crash; `no-station` → `no-station-position`.
-- [ ] Hub (fake timers): connecting → connected → mất stream → reconnecting với backoff đúng chuỗi → connected; vòng đệm giữ đúng giới hạn.
-- [ ] Socket `/ws` trần (không vào phòng) nhận `cors.state` + `cors.history` khi mở và `cors.epoch` mỗi epoch; test phòng hiện có trong `apps/server/test/server.test.ts` vẫn xanh.
-- [ ] CORS off → không message CORS nào.
+- [x] `clockBiasM[sys]` ≈ `c·dtr_sys + median_sys(injected)` của mock (< 1 cm).
+- [x] Mock `no-ephemeris` → `diagnosis` có `no-ephemeris`, không có epoch sai số, không crash; `no-station` → `no-station-position`.
+- [x] Hub (fake timers): connecting → connected → mất stream → reconnecting với backoff đúng chuỗi → connected; vòng đệm giữ đúng giới hạn.
+- [x] Socket `/ws` trần (không vào phòng) nhận `cors.state` + `cors.history` khi mở và `cors.epoch` mỗi epoch; test phòng hiện có trong `apps/server/test/server.test.ts` vẫn xanh.
+- [x] CORS off → không message CORS nào.
 
 ## Rollback
 

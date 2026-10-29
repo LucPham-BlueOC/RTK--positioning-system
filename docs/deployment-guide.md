@@ -88,13 +88,46 @@ Tất cả đều có giá trị mặc định; chỉ đặt khi cần thay đ�
 | `DATA_RETENTION_DAYS` | Sau bao lâu thì xóa phòng và dữ liệu | `7` |
 | `PAIRING_WINDOW_MS` | Ngưỡng ghép mẫu khi xuất CSV | `1000` |
 | `PUBLIC_ORIGIN` | Nếu đặt, chỉ nhận WebSocket từ origin này | trống (nhận mọi origin) |
+| `CORS_NTRIP_HOST` | Caster NTRIP của trạm CORS, ví dụ `rtk2go.com`. Để trống thì module CORS tắt | trống |
+| `CORS_NTRIP_PORT` | Cổng caster | `2101` |
+| `CORS_NTRIP_MOUNTPOINT` | Mountpoint của trạm | trống |
+| `CORS_NTRIP_USER` | Tên đăng nhập; RTK2go yêu cầu email thật | trống |
+| `CORS_NTRIP_PASS` | Mật khẩu | `none` |
+| `CORS_NTRIP_V2` | `1` để dùng NTRIP 2.0 (HTTP/1.1, chunked) | `0` |
+| `CORS_MOCK` | `1` phát trạm giả lập thay cho caster; `no-ephemeris`, `no-station` mô phỏng hai lỗi chẩn đoán | `0` |
+| `CORS_MIN_ELEVATION_DEG` | Bỏ vệ tinh thấp hơn góc ngẩng này | `10` |
+| `CORS_HISTORY_EPOCHS` | Số epoch giữ trong bộ nhớ và gửi khi mở page | `600` |
 
 Server mặc định chỉ nghe trên `127.0.0.1`, nên máy khác trong mạng LAN không gọi
 thẳng vào được; chỉ Cloudflare Tunnel trên chính laptop mới tới được server. Giới
 hạn thử mã phòng dựa vào header `cf-connecting-ip` mà tunnel gắn vào request. Nếu
 đổi `HOST` thành `0.0.0.0`, máy trong LAN có thể giả header này.
 
-Không có secret nào ở giai đoạn 1.
+Secret duy nhất là tài khoản NTRIP (`CORS_NTRIP_USER`, `CORS_NTRIP_PASS`). Đặt
+trong biến môi trường của terminal chạy server, không commit. Server không bao giờ
+log hay gửi mật khẩu xuống trình duyệt.
+
+## Trạm CORS (tùy chọn)
+
+Page `/cors` hiện sai số của trạm tham chiếu theo từng vệ tinh. Cách chọn trạm:
+
+1. Mở sourcetable của caster (ví dụ `http://rtk2go.com:2101`). Chọn mountpoint gần
+   có `1005` hoặc `1006`, MSM (`1074`–`1077`, `1094`–`1097`, `1124`–`1127`) và ít
+   nhất một mã quỹ đạo `1019`, `1046` hoặc `1042` trong cột format-details. Trạm
+   không phát quỹ đạo thì không tính được sai số.
+2. Chạy server kèm biến môi trường:
+
+   ```bash
+   CORS_NTRIP_HOST=rtk2go.com CORS_NTRIP_MOUNTPOINT=<mountpoint> \
+   CORS_NTRIP_USER=<email-thật> pnpm start
+   ```
+
+3. Mở `https://…/cors`. Khi đang kết nối, page cũng liệt kê các mountpoint có phát
+   quỹ đạo, lấy từ sourcetable.
+
+RTK2go chặn client kết nối dồn dập. Server giữ đúng một kết nối cho mỗi mountpoint,
+dùng chung cho mọi người xem. Khi mất kết nối, server thử lại sau 5 s, 10 s, 20 s…,
+tối đa 5 phút. Muốn thử giao diện mà không cần caster thì dùng `CORS_MOCK=1`.
 
 ## Dữ liệu, sao lưu và xóa
 
@@ -111,7 +144,7 @@ Không có secret nào ở giai đoạn 1.
 pnpm lint
 pnpm typecheck
 pnpm test        # unit + server
-pnpm test:e2e    # Playwright: 2 điện thoại giả lập; lần đầu chạy:
+pnpm test:e2e    # Playwright: 2 điện thoại giả lập và page /cors với trạm giả lập; lần đầu chạy:
                  # pnpm --filter @rtk/web exec playwright install chromium
 ```
 
@@ -126,3 +159,5 @@ CI (`.github/workflows/ci.yml`) chạy cùng các lệnh này khi push lên `mai
 | Trang mở được nhưng "Đang kết nối lại…" mãi | Server đã tắt hoặc tunnel trỏ sai cổng | Kiểm tra terminal 1; `pnpm tunnel` trỏ tới 8787, `pnpm tunnel:dev` tới 5173 |
 | Giao diện trống khi chạy `pnpm start` | Chưa build | Chạy `pnpm build` trước |
 | iPhone ngừng gửi vị trí | Màn hình tắt hoặc chuyển app | Giữ màn hình sáng, không rời trang khi đo |
+| `/cors` báo "Trạm không phát quỹ đạo vệ tinh" | Mountpoint không có 1019/1046/1042 | Chọn mountpoint khác trong danh sách gợi ý trên page |
+| `/cors` báo caster từ chối tài khoản | `CORS_NTRIP_USER` sai hoặc không phải email | Với RTK2go, dùng email thật |

@@ -1,6 +1,6 @@
 ---
 title: "Phase 6: docs"
-status: todo
+status: done
 ---
 
 # Phase 6: Docs
@@ -21,9 +21,9 @@ GLONASS, chỉ dùng quỹ đạo trong stream).
 
 ## Acceptance
 
-- [ ] Env trong docs khớp `apps/server/src/config.ts`.
-- [ ] Docs không dùng các mã sai cũ (1004/1033 làm ARP, 3040–3044, "GGA" của trạm).
-- [ ] Link tới source thay vì copy code; link artifact đối chiếu chuẩn.
+- [x] Env trong docs khớp `apps/server/src/config.ts`.
+- [x] Docs không dùng các mã sai cũ (1004/1033 làm ARP, 3040–3044, "GGA" của trạm).
+- [x] Link tới source thay vì copy code; link artifact đối chiếu chuẩn.
 
 ## Rollback
 

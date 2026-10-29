@@ -65,6 +65,7 @@ data/             file SQLite khi chạy (không commit)
 | `features/static-session` | Đo tĩnh: chọn thời lượng, đếm ngược, kết quả trung bình |
 | `features/compare` | Nhập khoảng cách thật, thống kê sai số, biểu đồ theo thời gian |
 | `features/export` | Link tải CSV |
+| `features/cors` | Page `/cors`: kết nối và chẩn đoán, vị trí trạm, sai số từng vệ tinh, đo thử máy này |
 | `location` | `watchPosition`, suy luận nguồn, Wake Lock, báo trạng thái hiển thị |
 | `sync` | WebSocket, kết nối lại, đồng bộ đồng hồ, hàng đợi gửi lại, store Zustand |
 | `lib` | Định dạng số kiểu Việt Nam, danh tính thiết bị, chọn tập dữ liệu |
@@ -78,6 +79,12 @@ data/             file SQLite khi chạy (không commit)
 | `store.ts` | SQLite: migration, phòng, máy, phiên, mẫu |
 | `export.ts` | `GET /api/rooms/:code/export.csv` |
 | `config.ts` | Biến môi trường |
+| `cors/ntrip.ts` | NTRIP client v1/v2 (chunked), sourcetable, lọc mountpoint có phát quỹ đạo |
+| `cors/rtcm3-framer.ts` | Tách khung RTCM3 từ stream TCP, kiểm CRC-24Q, đồng bộ lại khi gặp rác |
+| `cors/rtcm3-decode.ts` | Decode 1005/1006/1032, 1033, quỹ đạo 1019/1046/1042, MSM4–7; gom MSM thành epoch |
+| `cors/residual.ts` | Tính sai số tổng từng vệ tinh tại trạm |
+| `cors/hub.ts` | Một kết nối dùng chung, backoff, vòng đệm epoch, trạng thái và chẩn đoán |
+| `cors/mock-feed.ts` | Phát stream trạm giả lập khi `CORS_MOCK` bật |
 
 ### Thư viện dùng chung (`packages/shared/src`)
 
@@ -88,6 +95,11 @@ data/             file SQLite khi chạy (không commit)
 | `pairing` | Ghép mẫu hai máy theo thời gian |
 | `stats` | Thống kê sai số, lọc và lấy trung bình đo tĩnh |
 | `csv` | Định dạng CSV mẫu và cặp |
+| `cors` | Schema Zod của trạng thái CORS, epoch và sai số vệ tinh |
+| `ecef` | WGS84: ECEF ↔ kinh vĩ độ, ENU chính xác ở mọi khoảng cách, góc ngẩng |
+| `orbit` | Vị trí và đồng hồ vệ tinh từ quỹ đạo phát (GPS, Galileo, BeiDou kể cả GEO), thời gian GPS/BDT |
+| `rtcm3` | CRC-24Q, đọc/ghi bit, bố cục các message cố định, hằng số MSM |
+| `rtcm3-mock` | Trạm giả lập: stream RTCM3 hợp lệ có sai số cài sẵn đã biết |
 
 ## Mô hình dữ liệu
 
@@ -175,6 +187,12 @@ Tất cả message là JSON có trường `type`, được kiểm tra bằng Zod
 | C→S | `session.stop` | — |
 | C→S | `session.truth` | `trueDistanceM` |
 | S→C | `error` | `code`, `message` |
+| S→C | `cors.state` | trạng thái kết nối trạm CORS, vị trí trạm, mã RTCM đang nhận, chẩn đoán (khi đổi, tối đa 1 lần/giây) |
+| S→C | `cors.epoch` | sai số từng vệ tinh của một epoch |
+| S→C | `cors.history` | các epoch gần nhất, gửi một lần khi socket mở |
+
+Ba message `cors.*` gửi cho **mọi** socket, kể cả socket chưa vào phòng, và chỉ
+khi module CORS bật (xem [Module CORS](#module-cors)).
 
 **Máy đo và máy xem.** Mỗi phòng có tối đa 2 *máy đo* (`device`): gửi vị trí và
 được tính là A/B theo thứ tự vào phòng. *Máy xem* (`viewer`, thường là laptop) chỉ
@@ -337,6 +355,45 @@ lại dấu phân cách khi import.
 | Không có tín hiệu quá 5 giây | Trạng thái "mất tín hiệu" |
 | `accuracy` quá lớn | Vẫn hiển thị nhưng tô cảnh báo, loại khỏi trung bình tĩnh |
 
+## Module CORS
+
+Server tự kết nối tới caster NTRIP của một trạm tham chiếu (CORS), đọc RTCM3 và
+tính **sai số tổng của từng vệ tinh tại trạm** theo thời gian. Kết quả hiện ở
+page `/cors`; màn phòng không đổi. Trình duyệt không mở được TCP thô tới caster,
+nên mọi việc chạy trên server và dữ liệu đi qua `/ws` sẵn có. Đối chiếu chuẩn
+RTCM và các quyết định: [artifact](https://claude.ai/artifact/GuW4jvH3N7sUKT1rySAkL8).
+
+```mermaid
+flowchart LR
+  C[Caster NTRIP] -- TCP --> N[ntrip.ts] --> F[rtcm3-framer] --> D[rtcm3-decode]
+  D -- ARP, quỹ đạo, epoch MSM --> R[residual.ts] --> H[hub.ts]
+  H -- cors.state / cors.epoch / cors.history --> W[/ws/] --> P[page /cors]
+```
+
+Với mỗi vệ tinh có pseudorange `P` (GPS L1 C/A, Galileo E1, BeiDou B1I), vị trí
+anten trạm (1005/1006, hoặc 1032) và quỹ đạo phát trong chính stream
+(1019/1046/1042), [`residual.ts`](../apps/server/src/cors/residual.ts) tính:
+
+- `r = P − ρ + c·dts`, trong đó `ρ` là khoảng cách hình học đã tính quay Trái Đất
+  khi tín hiệu truyền, `dts` là đồng hồ vệ tinh (gồm tương đối và group delay).
+- Đồng hồ máy thu mỗi hệ `b = median(r)`, cần ít nhất 4 vệ tinh của hệ đó.
+- Sai số tổng `r − b`. Phần khí quyển được giữ lại, không tách thành phần.
+
+Vệ tinh bị bỏ khi thiếu quỹ đạo còn hạn (4 giờ GPS/Galileo, 1 giờ BeiDou), quỹ
+đạo báo không khỏe, hoặc góc ngẩng dưới `CORS_MIN_ELEVATION_DEG`.
+
+**Giới hạn.** Chỉ đo và hiển thị: điện thoại chỉ có vị trí đã giải từ
+Geolocation API, không có phép đo thô, nên không áp được hiệu chỉnh. Chưa xử lý
+GLONASS (cần kênh tần số từng vệ tinh); các mã của nó chỉ được đếm. Trạm không
+phát quỹ đạo (phần lớn trạm RTK2go) thì không tính được sai số; page ghi rõ lý do
+và gợi ý mountpoint có phát, lọc từ sourcetable.
+
+**Kiểm chứng.** Bố cục bit lấy theo RTKLIB và pyrtcm, vì chuẩn RTCM 10403 là tài
+liệu trả phí. Một stream thật đã ghi
+([`test/fixtures`](../apps/server/test/fixtures/README.md)) được decode khớp
+pyrtcm, và vị trí vệ tinh khớp cssrlib dưới 1 m. Với trạm giả lập, engine tính
+lại đúng sai số cài sẵn với sai lệch dưới 1 cm.
+
 ## Mở rộng cho các giai đoạn sau
 
 Chưa nằm trong phạm vi hiện tại. Kiến trúc Giai đoạn 1 được giữ nguyên; các giai
@@ -345,7 +402,7 @@ cài thêm trên laptop hoặc chuyển sang máy chủ khác.
 
 | Giai đoạn | Thêm vào | Điểm nối |
 |-----------|----------|----------|
-| 2. GNSS thô | `apps/android`, `workers/rtk` | Android vào phòng bằng cùng giao thức WebSocket; file thô tải qua `POST /api/sessions/:id/raw`; worker ghi kết quả vào bảng `rtk_solution` |
+| 2. GNSS thô | `apps/android`, `workers/rtk` | Android vào phòng bằng cùng giao thức WebSocket; file thô tải qua `POST /api/sessions/:id/raw`; worker ghi kết quả vào bảng `rtk_solution`. Phần lõi tính sai số trạm đã có trong [Module CORS](#module-cors); phần còn lại là áp hiệu chỉnh qua receiver hoặc RTKLIB |
 | 3. UWB | `apps/ios`, module UWB trong `apps/android` | Message mới `uwb.token` để trao đổi token qua phòng; mẫu khoảng cách UWB lưu bảng `range_sample` |
 | 4. RTK ngoài | Module Bluetooth trong `apps/android` | Mẫu có `source = rtk-fixed / rtk-float`; message `rtcm.relay` nếu dùng base cục bộ |
 
