@@ -20,6 +20,17 @@ const MAX_POINTS = 200;
 type Filter = 'all' | GnssSystem;
 const satKey = (sys: GnssSystem, prn: number) => `${sys}${String(prn).padStart(2, '0')}`;
 
+/** Residuals of the selected system(s), with their RMS and largest magnitude. */
+function summarize(sats: CorsEpoch['sats'], filter: Filter) {
+  const picked = filter === 'all' ? sats : sats.filter((s) => s.sys === filter);
+  const sq = picked.reduce((sum, s) => sum + s.residualM ** 2, 0);
+  return {
+    sats: picked,
+    rmsM: picked.length ? Math.sqrt(sq / picked.length) : 0,
+    maxAbsM: picked.reduce((m, s) => Math.max(m, Math.abs(s.residualM)), 0),
+  };
+}
+
 function thin(epochs: CorsEpoch[]) {
   const step = Math.max(1, Math.ceil(epochs.length / MAX_POINTS));
   return epochs.filter((_, i) => (epochs.length - 1 - i) % step === 0);
@@ -34,9 +45,9 @@ export function CorsResidualChart() {
     const shown = thin(epochs);
     const keys = new Map<string, GnssSystem>();
     const rows = shown.map((e) => {
-      const row: Record<string, number> = { t: e.at, rms: e.rmsM };
-      for (const s of e.sats) {
-        if (filter !== 'all' && s.sys !== filter) continue;
+      const { sats, rmsM } = summarize(e.sats, filter);
+      const row: Record<string, number> = { t: e.at, rms: rmsM };
+      for (const s of sats) {
         const key = satKey(s.sys, s.prn);
         keys.set(key, s.sys);
         row[key] = s.residualM;
@@ -54,13 +65,14 @@ export function CorsResidualChart() {
   }, [epochs, filter]);
 
   const latest = epochs.at(-1);
+  const current = latest && summarize(latest.sats, filter);
 
   return (
     <Card title="Sai số trạm theo vệ tinh">
       <p className="-mt-2 mb-3 text-xs text-slate-400">
         Sai số tổng của từng vệ tinh tại trạm (gồm khí quyển, đã trừ đồng hồ máy thu của từng hệ).
       </p>
-      {!latest ? (
+      {!latest || !current ? (
         <div className="flex flex-col gap-2 text-sm text-slate-400">
           {diagnosis.length ? (
             diagnosis.map((d) => <p key={d}>{DIAGNOSIS_TEXT[d]}</p>)
@@ -71,9 +83,9 @@ export function CorsResidualChart() {
       ) : (
         <>
           <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Stat label="RMS hiện tại" value={fmtM(latest.rmsM)} />
-            <Stat label="Lớn nhất" value={fmtM(latest.maxAbsM)} />
-            <Stat label="Số vệ tinh dùng" value={latest.sats.length} />
+            <Stat label="RMS hiện tại" value={fmtM(current.rmsM)} />
+            <Stat label="Lớn nhất" value={fmtM(current.maxAbsM)} />
+            <Stat label="Số vệ tinh dùng" value={current.sats.length} />
             <Stat label="Epoch" value={fmtTime(latest.at)} />
           </div>
           <div className="mb-2 flex flex-wrap gap-2" role="radiogroup" aria-label="Lọc hệ vệ tinh">
@@ -156,8 +168,7 @@ export function CorsResidualChart() {
                 </tr>
               </thead>
               <tbody>
-                {[...latest.sats]
-                  .filter((s) => filter === 'all' || s.sys === filter)
+                {[...current.sats]
                   .sort((a, b) => satKey(a.sys, a.prn).localeCompare(satKey(b.sys, b.prn)))
                   .map((s) => (
                     <tr key={satKey(s.sys, s.prn)} className="border-t border-slate-800">
